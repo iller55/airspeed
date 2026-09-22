@@ -33,6 +33,7 @@
   .cell small{display:block;font-size:12px;color:var(--dim);letter-spacing:.06em}
   .cell b{font-size:26px;font-weight:400;font-variant-numeric:tabular-nums}
   .cell b span{font-size:13px;color:var(--dim);margin-left:4px}
+  .cell.wide{grid-column:1 / -1}
   .meta{font-size:12px;color:var(--dim);text-align:center;min-height:18px}
   button{width:100%;font:inherit;color:var(--fg);background:#15181c;border:1px solid var(--line);
     border-radius:14px;padding:16px;font-size:16px}
@@ -54,6 +55,7 @@
     <div class="cell"><small>上り</small><b id="up">--<span>Mbps</span></b></div>
     <div class="cell"><small>応答</small><b id="ping">--<span>ms</span></b></div>
     <div class="cell"><small>ゆらぎ</small><b id="jit">--<span>ms</span></b></div>
+    <div class="cell wide"><small>回線だけの往復（最速）</small><b id="best">--<span>ms</span></b></div>
   </div>
 
   <div class="meta" id="meta"></div>
@@ -69,22 +71,37 @@ const fmt = v => v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)
 const setBig = (v, unit) => { $('big').textContent = v; $('unit').textContent = unit; };
 const setBar = p => { $('bar').firstElementChild.style.width = Math.min(100, p * 100) + '%'; };
 
-async function ping(n = 10){
+// 応答は「測った往復 − サーバ側の処理時間」。Cloudflare が Server-Timing で処理時間を返すので引く。
+// 併せてエッジが実測した TCP の往復（cfL4 の min_rtt）も拾う
+function serverTiming(res){
+  const h = res.headers.get('server-timing') || '';
+  let dur = 0;
+  for (const m of h.matchAll(/cfSpeed\w+;dur=([\d.]+)/g)) dur += parseFloat(m[1]);
+  const l4 = h.match(/min_rtt=(\d+)/);
+  return {dur, minRtt: l4 ? parseInt(l4[1], 10) / 1000 : null};
+}
+
+async function ping(n = 14){
   await fetch(DOWN(0) + '&r=' + Math.random(), {cache: 'no-store'});   // 1回目は接続の準備が乗るので捨てる
-  const t = [];
+  const t = [], edge = [];
   for (let i = 0; i < n; i++){
     const s = performance.now();
-    await fetch(DOWN(0) + '&r=' + Math.random(), {cache: 'no-store'});
-    t.push(performance.now() - s);
+    const res = await fetch(DOWN(0) + '&r=' + Math.random(), {cache: 'no-store'});
+    await res.arrayBuffer();
+    const st = serverTiming(res);
+    const net = Math.max(0, performance.now() - s - st.dur);           // サーバの処理時間を引く
+    t.push(net);
+    if (st.minRtt) edge.push(st.minRtt);
     setBar((i + 1) / n);
-    setBig(Math.round(t[t.length - 1]), 'ms');
+    setBig(Math.round(net), 'ms');
   }
   // ゆらぎは測った順のまま隣どうしの差、応答は真ん中の値（外れ値に引っぱられない）
   let j = 0;
   for (let i = 1; i < t.length; i++) j += Math.abs(t[i] - t[i-1]);
   const sorted = [...t].sort((a, b) => a - b);
   const mid = sorted[Math.floor(sorted.length / 2)];
-  return {ping: mid, jitter: j / (t.length - 1)};
+  const best = edge.length ? Math.min(...edge) : Math.min(...t);       // 回線だけの往復に近い値
+  return {ping: mid, jitter: j / (t.length - 1), best};
 }
 
 // 落としながら経過を出す。回線が速いほど大きく、遅いほど小さい塊を使う
@@ -138,7 +155,7 @@ async function meta(){
 
 async function run(){
   $('again').disabled = true;
-  for (const id of ['down', 'up', 'ping', 'jit']) $(id).firstChild.nodeValue = '--';
+  for (const id of ['down', 'up', 'ping', 'jit', 'best']) $(id).firstChild.nodeValue = '--';
   meta();
   try {
     $('phase').textContent = '応答を測っています';
@@ -146,6 +163,7 @@ async function run(){
     const p = await ping();
     $('ping').firstChild.nodeValue = p.ping.toFixed(0);
     $('jit').firstChild.nodeValue = p.jitter.toFixed(0);
+    $('best').firstChild.nodeValue = p.best.toFixed(0);
 
     $('phase').textContent = '下りを測っています';
     setBar(0);
