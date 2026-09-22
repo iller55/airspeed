@@ -104,45 +104,64 @@ async function ping(n = 14){
   return {ping: mid, jitter: j / (t.length - 1), best};
 }
 
-// 落としながら経過を出す。回線が速いほど大きく、遅いほど小さい塊を使う
+// 下り: 4本同時に流して合計の流量で測る（1本だけだと速い回線で本来の速度が出ない）。
+// 立ち上がりの 2 秒を除いた区間の平均を結果にする
 async function download(){
-  let best = 0, bytesAll = 0, started = performance.now();
-  for (const size of [2e6, 1e7, 2.5e7]){
-    const s = performance.now();
-    const res = await fetch(DOWN(size) + '&r=' + Math.random(), {cache: 'no-store'});
-    const reader = res.body.getReader();
-    let got = 0;
-    for (;;){
-      const {done, value} = await reader.read();
-      if (done) break;
-      got += value.length; bytesAll += value.length;
-      const sec = (performance.now() - s) / 1000;
-      if (sec > 0.2){
-        const mbps = got * 8 / sec / 1e6;
-        best = Math.max(best, mbps);
-        setBig(fmt(mbps), 'Mbps');
-      }
-      setBar(Math.min(1, (performance.now() - started) / 12000));
+  const N = 4, DUR = 8000, WARM = 2000;
+  let bytes = 0, warmBytes = 0, warmAt = 0, stop = false;
+  const t0 = performance.now(), ctl = new AbortController();
+  const tick = setInterval(() => {
+    const ms = performance.now() - t0;
+    if (!warmAt && ms >= WARM){ warmAt = ms; warmBytes = bytes; }
+    if (ms > 500) setBig(fmt(bytes * 8 / (ms / 1000) / 1e6), 'Mbps');
+    setBar(Math.min(1, ms / DUR));
+  }, 150);
+  const worker = async () => {
+    while (!stop){
+      try {
+        const res = await fetch(DOWN(25e6) + '&r=' + Math.random(), {cache: 'no-store', signal: ctl.signal});
+        const reader = res.body.getReader();
+        for (;;){
+          const {done, value} = await reader.read();
+          if (done) break;
+          bytes += value.length;
+          if (performance.now() - t0 > DUR){ stop = true; ctl.abort(); break; }
+        }
+      } catch (_) { break; }
     }
-    if (performance.now() - started > 9000) break;            // 長くなりすぎたら打ち切る
-  }
-  return best;
+  };
+  await Promise.allSettled(Array.from({length: N}, worker));
+  clearInterval(tick);
+  const ms = performance.now() - t0;
+  const useWarm = warmAt && ms > warmAt + 1000;
+  const mbps = useWarm ? (bytes - warmBytes) * 8 / ((ms - warmAt) / 1000) / 1e6
+                       : bytes * 8 / (ms / 1000) / 1e6;
+  return mbps;
 }
 
+// 上り: 3本同時に送る
 async function upload(){
-  let best = 0, started = performance.now();
-  for (const size of [1e6, 5e6, 1e7]){
-    const body = new Uint8Array(size);
-    const s = performance.now();
-    await fetch(UP, {method: 'POST', body, cache: 'no-store'});
-    const sec = (performance.now() - s) / 1000;
-    const mbps = size * 8 / sec / 1e6;
-    best = Math.max(best, mbps);
-    setBig(fmt(mbps), 'Mbps');
-    setBar(Math.min(1, (performance.now() - started) / 10000));
-    if (performance.now() - started > 8000) break;
-  }
-  return best;
+  const N = 3, DUR = 8000, CHUNK = 4e6;
+  let bytes = 0, stop = false;
+  const t0 = performance.now();
+  const body = new Uint8Array(CHUNK);
+  const tick = setInterval(() => {
+    const ms = performance.now() - t0;
+    if (ms > 800 && bytes) setBig(fmt(bytes * 8 / (ms / 1000) / 1e6), 'Mbps');
+    setBar(Math.min(1, ms / DUR));
+  }, 150);
+  const worker = async () => {
+    while (!stop){
+      try {
+        await fetch(UP, {method: 'POST', body, cache: 'no-store'});
+        bytes += CHUNK;
+        if (performance.now() - t0 > DUR) stop = true;
+      } catch (_) { break; }
+    }
+  };
+  await Promise.allSettled(Array.from({length: N}, worker));
+  clearInterval(tick);
+  return bytes * 8 / ((performance.now() - t0) / 1000) / 1e6;
 }
 
 async function meta(){
