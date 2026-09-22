@@ -28,14 +28,13 @@
   /* 測っている数字はカードにそのまま出る。結果は常に上下の真ん中 */
   .results{flex:1;display:flex;flex-direction:column;justify-content:center;gap:10px}
   .rows{display:grid;gap:10px}
-  .rows.two{grid-template-columns:1fr 1fr}      /* 下り・上り */
-  .rows.three{grid-template-columns:repeat(3,1fr)}  /* 応答・ゆらぎ・回線だけ */
+  .rows.two{grid-template-columns:1fr 1fr}      /* Download・Upload */
+  .rows.three{grid-template-columns:repeat(3,1fr)}  /* Ping・Jitter・Best ping */
   .cell{border:1px solid var(--line);border-radius:14px;padding:12px 14px}
   .cell small{display:block;font-size:12px;color:var(--dim);letter-spacing:.06em}
   .cell b{display:block;text-align:right;font-size:26px;font-weight:400;font-variant-numeric:tabular-nums}
-  /* 下り・上りは主役。枠を倍の高さにして数字を 1.5 倍（単位はそのまま） */
-  .rows.two .cell{min-height:158px;display:flex;flex-direction:column}
-  .rows.two .cell b{margin-top:auto;font-size:39px}
+  /* Download・Upload は主役。数字だけ 1.5 倍（単位はそのまま）。高さは中身なり */
+  .rows.two .cell b{font-size:39px}
   .cell b span{font-size:13px;color:var(--dim);margin-left:4px}
   .meta{font-size:12px;color:var(--dim);text-align:center;min-height:18px}
   button{width:100%;font:inherit;color:var(--fg);background:#15181c;border:1px solid var(--line);
@@ -45,24 +44,24 @@
 </style>
 </head>
 <body>
-  <header><h1>AIR SPEED</h1><span id="phase">準備中</span></header>
+  <header><h1>AIR SPEED</h1><span id="phase">Ready</span></header>
 
   <div id="bar"><i></i></div>
 
   <div class="results">
     <div class="rows two">
-      <div class="cell"><small>下り</small><b id="down">--<span>Mbps</span></b></div>
-      <div class="cell"><small>上り</small><b id="up">--<span>Mbps</span></b></div>
+      <div class="cell"><small>Download</small><b id="down">--<span>Mbps</span></b></div>
+      <div class="cell"><small>Upload</small><b id="up">--<span>Mbps</span></b></div>
     </div>
     <div class="rows three">
-      <div class="cell"><small>応答</small><b id="ping">--<span>ms</span></b></div>
-      <div class="cell"><small>ゆらぎ</small><b id="jit">--<span>ms</span></b></div>
-      <div class="cell"><small>回線だけ</small><b id="best">--<span>ms</span></b></div>
+      <div class="cell"><small>Ping</small><b id="ping">--<span>ms</span></b></div>
+      <div class="cell"><small>Jitter</small><b id="jit">--<span>ms</span></b></div>
+      <div class="cell"><small>Best ping</small><b id="best">--<span>ms</span></b></div>
     </div>
   </div>
 
   <div class="meta" id="meta"></div>
-  <button id="again" disabled>もう一度測る</button>
+  <button id="again" disabled>Test again</button>
 
 <script>
 // 測定先は Cloudflare の公開測定サーバ。国内の拠点に繋がる。
@@ -104,7 +103,7 @@ async function ping(n = 14){
   for (let i = 1; i < t.length; i++) j += Math.abs(t[i] - t[i-1]);
   const sorted = [...t].sort((a, b) => a - b);
   const mid = sorted[Math.floor(sorted.length / 2)];
-  const best = edge.length ? Math.min(...edge) : Math.min(...t);       // 回線だけの往復に近い値
+  const best = edge.length ? Math.min(...edge) : Math.min(...t);       // その接続で一番速かった往復
   return {ping: mid, jitter: j / (t.length - 1), best};
 }
 
@@ -181,27 +180,27 @@ async function run(){
   for (const id of ['down', 'up', 'ping', 'jit', 'best']) setCell(id, '--');
   meta();
   try {
-    $('phase').textContent = '応答を測っています';
+    $('phase').textContent = 'Ping…';
     setBar(0);
     const p = await ping();
     setCell('ping', p.ping.toFixed(0));
     setCell('jit', p.jitter.toFixed(0));
     setCell('best', p.best.toFixed(0));
 
-    $('phase').textContent = '下りを測っています';
+    $('phase').textContent = 'Download…';
     setBar(0);
     const d = await download();
     setCell('down', fmt(d));
 
-    $('phase').textContent = '上りを測っています';
+    $('phase').textContent = 'Upload…';
     setBar(0);
     const u = await upload();
     setCell('up', fmt(u));
 
-    $('phase').textContent = '完了';
+    $('phase').textContent = 'Done';
     setBar(1);
   } catch (e) {
-    $('phase').textContent = '測れませんでした';
+    $('phase').textContent = 'Failed';
     $('meta').textContent = String(e && e.message || e);
   }
   $('again').disabled = false;
