@@ -23,7 +23,12 @@
   header{display:flex;align-items:baseline;justify-content:space-between}
   h1{margin:0;font-size:15px;letter-spacing:.12em;color:var(--dim);font-weight:600}
   #phase{font-size:13px;color:var(--dim)}
-  .main{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px}
+  .main{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;
+    transition:opacity .2s}
+  .main.gone{opacity:0}
+  /* 測り終わったら大きい数字は畳む。結果はカードに任せて、上下の真ん中に置く */
+  .main[hidden]{display:none}
+  .main[hidden] ~ .rows{margin-top:auto;margin-bottom:auto}
   #big{font-size:76px;line-height:1;font-weight:300;font-variant-numeric:tabular-nums;letter-spacing:-2px}
   #unit{font-size:15px;color:var(--dim);letter-spacing:.1em}
   #bar{width:100%;height:3px;background:var(--line);border-radius:2px;overflow:hidden}
@@ -44,7 +49,7 @@
 <body>
   <header><h1>AIR SPEED</h1><span id="phase">準備中</span></header>
 
-  <div class="main">
+  <div class="main" id="live">
     <div id="big">--</div>
     <div id="unit">Mbps</div>
     <div id="bar"><i></i></div>
@@ -69,6 +74,12 @@ const META = 'https://speed.cloudflare.com/meta';
 const $ = id => document.getElementById(id);
 const fmt = v => v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2);
 const setBig = (v, unit) => { $('big').textContent = v; $('unit').textContent = unit; };
+// 大きい数字は「いま測っているもの」専用。終わったら畳む（最後に下りへ巻き戻ると逆走して見える）
+const showLive = on => {
+  const m = $('live');
+  if (on){ m.hidden = false; requestAnimationFrame(() => m.classList.remove('gone')); }
+  else { m.classList.add('gone'); setTimeout(() => { m.hidden = true; }, 220); }
+};
 const setBar = p => { $('bar').firstElementChild.style.width = Math.min(100, p * 100) + '%'; };
 
 // 応答は「測った往復 − サーバ側の処理時間」。Cloudflare が Server-Timing で処理時間を返すので引く。
@@ -93,7 +104,7 @@ async function ping(n = 14){
     t.push(net);
     if (st.minRtt) edge.push(st.minRtt);
     setBar((i + 1) / n);
-    setBig(Math.round(net), 'ms');
+    setBig(Math.round(net), 'ms（応答）');
   }
   // ゆらぎは測った順のまま隣どうしの差、応答は真ん中の値（外れ値に引っぱられない）
   let j = 0;
@@ -113,7 +124,7 @@ async function download(){
   const tick = setInterval(() => {
     const ms = performance.now() - t0;
     if (!warmAt && ms >= WARM){ warmAt = ms; warmBytes = bytes; }
-    if (ms > 500) setBig(fmt(bytes * 8 / (ms / 1000) / 1e6), 'Mbps');
+    if (ms > 500) setBig(fmt(bytes * 8 / (ms / 1000) / 1e6), 'Mbps（下り）');
     setBar(Math.min(1, ms / DUR));
   }, 150);
   const worker = async () => {
@@ -147,7 +158,7 @@ async function upload(){
   const body = new Uint8Array(CHUNK);
   const tick = setInterval(() => {
     const ms = performance.now() - t0;
-    if (ms > 800 && bytes) setBig(fmt(bytes * 8 / (ms / 1000) / 1e6), 'Mbps');
+    if (ms > 800 && bytes) setBig(fmt(bytes * 8 / (ms / 1000) / 1e6), 'Mbps（上り）');
     setBar(Math.min(1, ms / DUR));
   }, 150);
   const worker = async () => {
@@ -177,8 +188,9 @@ async function run(){
   for (const id of ['down', 'up', 'ping', 'jit', 'best']) $(id).firstChild.nodeValue = '--';
   meta();
   try {
+    showLive(true);
     $('phase').textContent = '応答を測っています';
-    setBig('--', 'ms'); setBar(0);
+    setBig('--', 'ms（応答）'); setBar(0);
     const p = await ping();
     $('ping').firstChild.nodeValue = p.ping.toFixed(0);
     $('jit').firstChild.nodeValue = p.jitter.toFixed(0);
@@ -195,10 +207,11 @@ async function run(){
     $('up').firstChild.nodeValue = fmt(u);
 
     $('phase').textContent = '完了';
-    setBig(fmt(d), 'Mbps（下り）'); setBar(1);
+    setBar(1); showLive(false);
   } catch (e) {
     $('phase').textContent = '測れませんでした';
     $('meta').textContent = String(e && e.message || e);
+    showLive(false);
   }
   $('again').disabled = false;
 }
