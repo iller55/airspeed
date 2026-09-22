@@ -28,17 +28,19 @@
   .main.gone{opacity:0}
   /* 測り終わったら大きい数字は畳む。結果はカードに任せて、上下の真ん中に置く */
   .main[hidden]{display:none}
-  .main[hidden] ~ .rows{margin-top:auto;margin-bottom:auto}
+  .main[hidden] ~ .results{margin-top:auto;margin-bottom:auto}
   #big{font-size:76px;line-height:1;font-weight:300;font-variant-numeric:tabular-nums;letter-spacing:-2px}
   #unit{font-size:15px;color:var(--dim);letter-spacing:.1em}
   #bar{width:100%;height:3px;background:var(--line);border-radius:2px;overflow:hidden}
   #bar i{display:block;height:100%;width:0;background:var(--fg);transition:width .2s}
-  .rows{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .results{display:flex;flex-direction:column;gap:10px}
+  .rows{display:grid;gap:10px}
+  .rows.two{grid-template-columns:1fr 1fr}      /* 下り・上り */
+  .rows.three{grid-template-columns:repeat(3,1fr)}  /* 応答・ゆらぎ・回線だけ */
   .cell{border:1px solid var(--line);border-radius:14px;padding:12px 14px}
   .cell small{display:block;font-size:12px;color:var(--dim);letter-spacing:.06em}
   .cell b{font-size:26px;font-weight:400;font-variant-numeric:tabular-nums}
   .cell b span{font-size:13px;color:var(--dim);margin-left:4px}
-  .cell.wide{grid-column:1 / -1}
   .meta{font-size:12px;color:var(--dim);text-align:center;min-height:18px}
   button{width:100%;font:inherit;color:var(--fg);background:#15181c;border:1px solid var(--line);
     border-radius:14px;padding:16px;font-size:16px}
@@ -55,12 +57,16 @@
     <div id="bar"><i></i></div>
   </div>
 
-  <div class="rows">
-    <div class="cell"><small>下り</small><b id="down">--<span>Mbps</span></b></div>
-    <div class="cell"><small>上り</small><b id="up">--<span>Mbps</span></b></div>
-    <div class="cell"><small>応答</small><b id="ping">--<span>ms</span></b></div>
-    <div class="cell"><small>ゆらぎ</small><b id="jit">--<span>ms</span></b></div>
-    <div class="cell wide"><small>回線だけの往復（最速）</small><b id="best">--<span>ms</span></b></div>
+  <div class="results">
+    <div class="rows two">
+      <div class="cell"><small>下り</small><b id="down">--<span>Mbps</span></b></div>
+      <div class="cell"><small>上り</small><b id="up">--<span>Mbps</span></b></div>
+    </div>
+    <div class="rows three">
+      <div class="cell"><small>応答</small><b id="ping">--<span>ms</span></b></div>
+      <div class="cell"><small>ゆらぎ</small><b id="jit">--<span>ms</span></b></div>
+      <div class="cell"><small>回線だけ</small><b id="best">--<span>ms</span></b></div>
+    </div>
   </div>
 
   <div class="meta" id="meta"></div>
