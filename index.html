@@ -29,7 +29,7 @@
   .results{flex:1;display:flex;flex-direction:column;justify-content:center;gap:10px}
   .rows{display:grid;gap:10px}
   .rows.two{grid-template-columns:1fr 1fr}      /* Download・Upload */
-  .rows.three{grid-template-columns:repeat(3,1fr)}  /* Ping・Jitter・Best ping */
+  .rows.three{grid-template-columns:repeat(3,1fr)}  /* Ping・Jitter・Idle latency */
   .cell{border:1px solid var(--line);border-radius:14px;padding:12px 14px}
   .cell small{display:block;font-size:12px;color:var(--dim);letter-spacing:.06em}
   .cell b{display:block;text-align:right;font-size:26px;font-weight:400;font-variant-numeric:tabular-nums}
@@ -56,7 +56,7 @@
     <div class="rows three">
       <div class="cell"><small>Ping</small><b id="ping">--<span>ms</span></b></div>
       <div class="cell"><small>Jitter</small><b id="jit">--<span>ms</span></b></div>
-      <div class="cell"><small>Best ping</small><b id="best">--<span>ms</span></b></div>
+      <div class="cell"><small>Idle latency</small><b id="best">--<span>ms</span></b></div>
     </div>
   </div>
 
