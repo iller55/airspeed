@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="AIR SPEED">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
+<title>AIR SPEED</title>
+<style>
+  :root{ color-scheme:dark; --bg:#000; --fg:#fff; --dim:#8b929c; --line:#23262b; --ok:#3dd69c; }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:16px/1.5 -apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    padding:max(20px,env(safe-area-inset-top)) 20px max(20px,env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;gap:18px}
+  header{display:flex;align-items:baseline;justify-content:space-between}
+  h1{margin:0;font-size:15px;letter-spacing:.12em;color:var(--dim);font-weight:600}
+  #phase{font-size:13px;color:var(--dim)}
+  .main{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px}
+  #big{font-size:76px;line-height:1;font-weight:300;font-variant-numeric:tabular-nums;letter-spacing:-2px}
+  #unit{font-size:15px;color:var(--dim);letter-spacing:.1em}
+  #bar{width:100%;height:3px;background:var(--line);border-radius:2px;overflow:hidden}
+  #bar i{display:block;height:100%;width:0;background:var(--fg);transition:width .2s}
+  .rows{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .cell{border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+  .cell small{display:block;font-size:12px;color:var(--dim);letter-spacing:.06em}
+  .cell b{font-size:26px;font-weight:400;font-variant-numeric:tabular-nums}
+  .cell b span{font-size:13px;color:var(--dim);margin-left:4px}
+  .meta{font-size:12px;color:var(--dim);text-align:center;min-height:18px}
+  button{width:100%;font:inherit;color:var(--fg);background:#15181c;border:1px solid var(--line);
+    border-radius:14px;padding:16px;font-size:16px}
+  button:active{background:#1d2126}
+  button:disabled{opacity:.5}
+</style>
+</head>
+<body>
+  <header><h1>AIR SPEED</h1><span id="phase">準備中</span></header>
+
+  <div class="main">
+    <div id="big">--</div>
+    <div id="unit">Mbps</div>
+    <div id="bar"><i></i></div>
+  </div>
+
+  <div class="rows">
+    <div class="cell"><small>下り</small><b id="down">--<span>Mbps</span></b></div>
+    <div class="cell"><small>上り</small><b id="up">--<span>Mbps</span></b></div>
+    <div class="cell"><small>応答</small><b id="ping">--<span>ms</span></b></div>
+    <div class="cell"><small>ゆらぎ</small><b id="jit">--<span>ms</span></b></div>
+  </div>
+
+  <div class="meta" id="meta"></div>
+  <button id="again" disabled>もう一度測る</button>
+
+<script>
+// 測定先は Cloudflare の公開測定サーバ。国内の拠点に繋がる。
+const DOWN = n => `https://speed.cloudflare.com/__down?bytes=${n}`;
+const UP   = 'https://speed.cloudflare.com/__up';
+const META = 'https://speed.cloudflare.com/meta';
+const $ = id => document.getElementById(id);
+const fmt = v => v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2);
+const setBig = (v, unit) => { $('big').textContent = v; $('unit').textContent = unit; };
+const setBar = p => { $('bar').firstElementChild.style.width = Math.min(100, p * 100) + '%'; };
+
+async function ping(n = 10){
+  await fetch(DOWN(0) + '&r=' + Math.random(), {cache: 'no-store'});   // 1回目は接続の準備が乗るので捨てる
+  const t = [];
+  for (let i = 0; i < n; i++){
+    const s = performance.now();
+    await fetch(DOWN(0) + '&r=' + Math.random(), {cache: 'no-store'});
+    t.push(performance.now() - s);
+    setBar((i + 1) / n);
+    setBig(Math.round(t[t.length - 1]), 'ms');
+  }
+  // ゆらぎは測った順のまま隣どうしの差、応答は真ん中の値（外れ値に引っぱられない）
+  let j = 0;
+  for (let i = 1; i < t.length; i++) j += Math.abs(t[i] - t[i-1]);
+  const sorted = [...t].sort((a, b) => a - b);
+  const mid = sorted[Math.floor(sorted.length / 2)];
+  return {ping: mid, jitter: j / (t.length - 1)};
+}
+
+// 落としながら経過を出す。回線が速いほど大きく、遅いほど小さい塊を使う
+async function download(){
+  let best = 0, bytesAll = 0, started = performance.now();
+  for (const size of [2e6, 1e7, 2.5e7]){
+    const s = performance.now();
+    const res = await fetch(DOWN(size) + '&r=' + Math.random(), {cache: 'no-store'});
+    const reader = res.body.getReader();
+    let got = 0;
+    for (;;){
+      const {done, value} = await reader.read();
+      if (done) break;
+      got += value.length; bytesAll += value.length;
+      const sec = (performance.now() - s) / 1000;
+      if (sec > 0.2){
+        const mbps = got * 8 / sec / 1e6;
+        best = Math.max(best, mbps);
+        setBig(fmt(mbps), 'Mbps');
+      }
+      setBar(Math.min(1, (performance.now() - started) / 12000));
+    }
+    if (performance.now() - started > 9000) break;            // 長くなりすぎたら打ち切る
+  }
+  return best;
+}
+
+async function upload(){
+  let best = 0, started = performance.now();
+  for (const size of [1e6, 5e6, 1e7]){
+    const body = new Uint8Array(size);
+    const s = performance.now();
+    await fetch(UP, {method: 'POST', body, cache: 'no-store'});
+    const sec = (performance.now() - s) / 1000;
+    const mbps = size * 8 / sec / 1e6;
+    best = Math.max(best, mbps);
+    setBig(fmt(mbps), 'Mbps');
+    setBar(Math.min(1, (performance.now() - started) / 10000));
+    if (performance.now() - started > 8000) break;
+  }
+  return best;
+}
+
+async function meta(){
+  try {
+    const m = await (await fetch(META, {cache: 'no-store'})).json();
+    const bits = [m.asOrganization, m.city || m.colo, m.clientIp].filter(Boolean);
+    $('meta').textContent = bits.join('  ·  ');
+  } catch (_) {}
+}
+
+async function run(){
+  $('again').disabled = true;
+  for (const id of ['down', 'up', 'ping', 'jit']) $(id).firstChild.nodeValue = '--';
+  meta();
+  try {
+    $('phase').textContent = '応答を測っています';
+    setBig('--', 'ms'); setBar(0);
+    const p = await ping();
+    $('ping').firstChild.nodeValue = p.ping.toFixed(0);
+    $('jit').firstChild.nodeValue = p.jitter.toFixed(0);
+
+    $('phase').textContent = '下りを測っています';
+    setBar(0);
+    const d = await download();
+    $('down').firstChild.nodeValue = fmt(d);
+
+    $('phase').textContent = '上りを測っています';
+    setBar(0);
+    const u = await upload();
+    $('up').firstChild.nodeValue = fmt(u);
+
+    $('phase').textContent = '完了';
+    setBig(fmt(d), 'Mbps（下り）'); setBar(1);
+  } catch (e) {
+    $('phase').textContent = '測れませんでした';
+    $('meta').textContent = String(e && e.message || e);
+  }
+  $('again').disabled = false;
+}
+
+$('again').onclick = run;
+run();                                   // 開いたら自動で測り始める
+</script>
+</body>
+</html>
