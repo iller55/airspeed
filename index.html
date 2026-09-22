@@ -72,6 +72,10 @@ const $ = id => document.getElementById(id);
 const fmt = v => v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2);
 // 数字はカードの中だけに出す（大きい数字を別に出すと同じ値が二重になる）
 const setCell = (id, v) => { $(id).firstChild.nodeValue = v; };
+// 速度の出し方。立ち上がりを過ぎていたらその分を除く（見ていた数字がそのまま結果になる）
+const rate = (bytes, ms, warmBytes, warmAt) =>
+  (warmAt && ms > warmAt + 500 ? (bytes - warmBytes) * 8 / ((ms - warmAt) / 1000)
+                               : bytes * 8 / (ms / 1000)) / 1e6;
 const setBar = p => { $('bar').firstElementChild.style.width = Math.min(100, p * 100) + '%'; };
 
 // 応答は「測った往復 − サーバ側の処理時間」。Cloudflare が Server-Timing で処理時間を返すので引く。
@@ -108,7 +112,7 @@ async function ping(n = 14){
 }
 
 // 下り: 4本同時に流して合計の流量で測る（1本だけだと速い回線で本来の速度が出ない）。
-// 立ち上がりの 2 秒を除いた区間の平均を結果にする
+// 回線は出だしが遅いので、立ち上がりの 2 秒を除いた区間の平均を結果にする（上りも同じ）
 async function download(){
   const N = 4, DUR = 8000, WARM = 2000;
   let bytes = 0, warmBytes = 0, warmAt = 0, stop = false;
@@ -116,7 +120,7 @@ async function download(){
   const tick = setInterval(() => {
     const ms = performance.now() - t0;
     if (!warmAt && ms >= WARM){ warmAt = ms; warmBytes = bytes; }
-    if (ms > 500) setCell('down', fmt(bytes * 8 / (ms / 1000) / 1e6));
+    if (ms > 500) setCell('down', fmt(rate(bytes, ms, warmBytes, warmAt)));
     setBar(Math.min(1, ms / DUR));
   }, 150);
   const worker = async () => {
@@ -135,22 +139,19 @@ async function download(){
   };
   await Promise.allSettled(Array.from({length: N}, worker));
   clearInterval(tick);
-  const ms = performance.now() - t0;
-  const useWarm = warmAt && ms > warmAt + 1000;
-  const mbps = useWarm ? (bytes - warmBytes) * 8 / ((ms - warmAt) / 1000) / 1e6
-                       : bytes * 8 / (ms / 1000) / 1e6;
-  return mbps;
+  return rate(bytes, performance.now() - t0, warmBytes, warmAt);
 }
 
 // 上り: 3本同時に送る
 async function upload(){
-  const N = 3, DUR = 8000, CHUNK = 4e6;
-  let bytes = 0, stop = false;
+  const N = 3, DUR = 8000, CHUNK = 4e6, WARM = 2000;
+  let bytes = 0, warmBytes = 0, warmAt = 0, stop = false;
   const t0 = performance.now();
   const body = new Uint8Array(CHUNK);
   const tick = setInterval(() => {
     const ms = performance.now() - t0;
-    if (ms > 800 && bytes) setCell('up', fmt(bytes * 8 / (ms / 1000) / 1e6));
+    if (!warmAt && ms >= WARM){ warmAt = ms; warmBytes = bytes; }
+    if (ms > 800 && bytes) setCell('up', fmt(rate(bytes, ms, warmBytes, warmAt)));
     setBar(Math.min(1, ms / DUR));
   }, 150);
   const worker = async () => {
@@ -164,7 +165,7 @@ async function upload(){
   };
   await Promise.allSettled(Array.from({length: N}, worker));
   clearInterval(tick);
-  return bytes * 8 / ((performance.now() - t0) / 1000) / 1e6;
+  return rate(bytes, performance.now() - t0, warmBytes, warmAt);
 }
 
 async function meta(){
