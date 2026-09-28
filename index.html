@@ -185,8 +185,8 @@ async function meta(){
   } catch (_) {}
 }
 
-// 直近の結果を端末に残す（この端末だけの記録。サーバには送らない）。保存 10 回、表示 3 回
-const KEEP = 10, SHOW = 3;
+// 直近の結果を端末に残す（この端末だけの記録。サーバには送らない）。保存 20 回、表示 6 回
+const KEEP = 20, SHOW = 6;
 function history(){ try { return JSON.parse(localStorage.getItem('history') || '[]'); } catch (_) { return []; } }
 function remember(r){
   const h = [r].concat(history()).slice(0, KEEP);
